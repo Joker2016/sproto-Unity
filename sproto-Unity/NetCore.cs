@@ -20,6 +20,8 @@ public class NetCore
     private static ManualResetEvent TimeoutObject;
 
     private static Queue<byte[]> recvQueue = new Queue<byte[]>();
+	private static Queue<byte[]> dispatchQueue = new Queue<byte[]>();
+	private static System.Object queueLock = new System.Object();
 
     private static SprotoPack sendPack = new SprotoPack();
     private static SprotoPack recvPack = new SprotoPack();
@@ -169,7 +171,11 @@ public class NetCore
             {
                 byte[] data = new byte[length];
                 recvStream.Read(data, 0, length);
-                recvQueue.Enqueue(data);
+
+				lock (queueLock)
+				{
+					recvQueue.Enqueue(data);
+				}
             }
 
             i += sz;
@@ -197,14 +203,24 @@ public class NetCore
     {
         package pkg = new package();
 
-        if (recvQueue.Count > 20)
+		lock (queueLock)
+		{
+			if (recvQueue.Count == 0)
+				return;
+
+			Queue<byte[]> tmpQueue = recvQueue;
+			recvQueue = dispatchQueue;
+			dispatchQueue = tmpQueue;
+		}
+
+        if (dispatchQueue.Count > 20)
         {
-            Debug.Log("recvQueue.Count: " + recvQueue.Count);
+            Debug.Log("dispatchQueue.Count: " + dispatchQueue.Count);
         }
 
-        while (recvQueue.Count > 0)
+        while (dispatchQueue.Count > 0)
         {
-            byte[] data = recvPack.unpack(recvQueue.Dequeue());
+            byte[] data = recvPack.unpack(dispatchQueue.Dequeue());
             int offset = pkg.init(data);
 
             int tag = (int)pkg.type;
